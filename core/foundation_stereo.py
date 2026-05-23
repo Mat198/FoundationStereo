@@ -238,21 +238,21 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         disp = init_disp.float()
         disp_preds = []
 
-        # GRUs iterations to update disparity (1/4 resolution)
+        # GRU iterations to update disparity (1/4 resolution)
         for itr in range(iters):
             disp = disp.detach()
             geo_feat = geo_fn(disp, coords, low_memory=low_memory)
             with autocast(enabled=self.args.mixed_precision):
-              net_list, mask_feat_4, delta_disp = self.update_block(net_list, inp_list, geo_feat, disp, att)
+                net_list, mask_feat_4, delta_disp = self.update_block(net_list, inp_list, geo_feat, disp, att)
 
             disp = disp + delta_disp.float()
             if test_mode and itr < iters-1:
                 continue
 
-            # upsample predictions
+            # upsample predictions; for training we only keep the final prediction
             disp_up = self.upsample_disp(disp.float(), mask_feat_4.float(), stem_2x.float())
-            disp_preds.append(disp_up)
-
+            if test_mode or itr == iters - 1:
+                disp_preds.append(disp_up)
 
         if test_mode:
             return disp_up
