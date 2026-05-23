@@ -4,3 +4,5 @@ output/*
 weight/
 __pycache__
 DATA/*
+
+dataset
