@@ -12,7 +12,6 @@ import imageio
 import numpy as np
 import torch
 import torch.nn as nn
-from omegaconf import OmegaConf
 from torch.utils.data import DataLoader, Dataset
 
 code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -48,9 +47,10 @@ def parse_args():
                         help='Number of update iterations in forward pass')
     parser.add_argument('--max_disp', type=int, default=192,
                         help='Maximum disparity in pixels (must be divisible by 16 ideally)')
-    parser.add_argument('--hidden_dims', type=str, default='96,160,304',
-                        help='Comma-separated hidden dims for the model')
-    parser.add_argument('--n_downsample', type=int, default=3)
+    parser.add_argument('--hidden_dims', type=str, default='96,96,96',
+                        help='Comma-separated hidden dims for the model. Current local training requires constant values, e.g. 96,96,96')
+    parser.add_argument('--n_downsample', type=int, default=2,
+                        help='Number of downsample stages in the context encoder')
     parser.add_argument('--n_gru_layers', type=int, default=3)
     parser.add_argument('--corr_radius', type=int, default=4)
     parser.add_argument('--corr_levels', type=int, default=3)
@@ -163,8 +163,22 @@ def find_dataset_paths(args):
 
 
 def build_model(args):
-    model_args = OmegaConf.create({
-        'hidden_dims': [int(x) for x in args.hidden_dims.split(',')],
+    hidden_dims = [int(x) for x in args.hidden_dims.split(',')]
+    if len(hidden_dims) != args.n_gru_layers:
+        raise ValueError(f'hidden_dims length ({len(hidden_dims)}) must equal n_gru_layers ({args.n_gru_layers})')
+    if len(set(hidden_dims)) != 1:
+        raise ValueError('Current local training requires hidden_dims to be constant across scales, e.g. --hidden_dims 96,96,96')
+
+    class ArgsWrapper:
+        def __init__(self, d):
+            self.__dict__.update(d)
+        def __getitem__(self, key):
+            return self.__dict__[key]
+        def get(self, key, default=None):
+            return self.__dict__.get(key, default)
+
+    model_args = ArgsWrapper({
+        'hidden_dims': hidden_dims,
         'n_downsample': args.n_downsample,
         'n_gru_layers': args.n_gru_layers,
         'max_disp': args.max_disp,
