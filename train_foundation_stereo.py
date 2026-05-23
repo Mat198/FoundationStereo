@@ -45,6 +45,8 @@ def parse_args():
                         help='Optional crop width for training images')
     parser.add_argument('--iters', type=int, default=12,
                         help='Number of update iterations in forward pass')
+    parser.add_argument('--low_memory', action='store_true',
+                        help='Enable low-memory mode during forward pass')
     parser.add_argument('--max_disp', type=int, default=192,
                         help='Maximum disparity in pixels (must be divisible by 16 ideally)')
     parser.add_argument('--hidden_dims', type=str, default='96,96,96',
@@ -279,7 +281,7 @@ def main():
 
             optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=bool(args.mixed_precision)):
-                init_disp, disp_preds = model(left, right, iters=args.iters)
+                init_disp, disp_preds = model(left, right, iters=args.iters, low_memory=args.low_memory)
                 if not isinstance(disp_preds, (list, tuple)):
                     pred_disp = disp_preds
                 else:
@@ -329,7 +331,7 @@ def main():
                     padder = InputPadder(left.shape, divis_by=32, force_square=False)
                     left, right = padder.pad(left, right)
                     with torch.amp.autocast('cuda', enabled=bool(args.mixed_precision)):
-                        _, disp_preds = model(left, right, iters=args.iters)
+                        _, disp_preds = model(left, right, iters=args.iters, low_memory=args.low_memory)
                         pred_disp = disp_preds[-1]
                         pred_disp = padder.unpad(pred_disp).squeeze(1)
                         loss = compute_loss(pred_disp, gt_disp)
