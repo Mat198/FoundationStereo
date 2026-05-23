@@ -124,14 +124,29 @@ class BasicSelectiveMultiUpdateBlock(nn.Module):
         self.args = args
         self.encoder = BasicMotionEncoder(args, volume_dim)
 
+        # The motion encoder returns `out` concatenated with `disp` (1 channel).
+        # Compute its returned channels dynamically to avoid hardcoding and
+        # to keep SelectiveConvGRU input sizes consistent with actual concat.
+        encoder_return_ch = self.encoder.conv.out_channels + 1
+
         if args.n_gru_layers == 3:
             self.gru16 = SelectiveConvGRU(hidden_dim, hidden_dim * 2)
         if args.n_gru_layers >= 2:
             self.gru08 = SelectiveConvGRU(hidden_dim, hidden_dim * (args.n_gru_layers == 3) + hidden_dim * 2)
-        self.gru04 = SelectiveConvGRU(hidden_dim, hidden_dim * (args.n_gru_layers > 1) + hidden_dim * 2)
+
+        # For the lowest scale GRU (gru04) we feed `motion_features` (which is
+        # inp[0] concatenated with encoder output) and `interp(net[1], net[0])`.
+        # Therefore the required input channels are: inp_ch + encoder_return_ch + net1_ch
+        # where inp_ch and net1_ch are both `hidden_dim`.
+        if args.n_gru_layers > 1:
+            gru04_in = 2 * hidden_dim + encoder_return_ch
+        else:
+            # fallback to original formulation for single-GRU setups
+            gru04_in = hidden_dim * (args.n_gru_layers > 1) + hidden_dim * 2
+        self.gru04 = SelectiveConvGRU(hidden_dim, gru04_in)
         self.disp_head = DispHead(hidden_dim, 256)
         self.mask = nn.Sequential(
-            nn.Conv2d(128, 64, 3, padding=1),
+            nn.Conv2d(hidden_dim, 64, 3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 32, 3, padding=1),
             nn.ReLU(inplace=True),
