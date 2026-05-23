@@ -254,7 +254,7 @@ def main():
     model.train()
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scaler = torch.cuda.amp.GradScaler(enabled=bool(args.mixed_precision))
+    scaler = torch.amp.GradScaler('cuda', enabled=bool(args.mixed_precision))
 
     start_epoch = 0
     if args.resume_ckpt is not None:
@@ -278,7 +278,7 @@ def main():
             left, right = padder.pad(left, right)
 
             optimizer.zero_grad()
-            with torch.cuda.amp.autocast(enabled=bool(args.mixed_precision)):
+            with torch.amp.autocast('cuda', enabled=bool(args.mixed_precision)):
                 init_disp, disp_preds = model(left, right, iters=args.iters)
                 if not isinstance(disp_preds, (list, tuple)):
                     pred_disp = disp_preds
@@ -328,7 +328,7 @@ def main():
                     gt_disp = val_batch['disp'].to(device)
                     padder = InputPadder(left.shape, divis_by=32, force_square=False)
                     left, right = padder.pad(left, right)
-                    with torch.cuda.amp.autocast(enabled=bool(args.mixed_precision)):
+                    with torch.amp.autocast('cuda', enabled=bool(args.mixed_precision)):
                         _, disp_preds = model(left, right, iters=args.iters)
                         pred_disp = disp_preds[-1]
                         pred_disp = padder.unpad(pred_disp).squeeze(1)
