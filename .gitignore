@@ -6,3 +6,8 @@ __pycache__
 DATA/*
 
 dataset
+
+.vscode
+test_outputs
+training_output
+weights
