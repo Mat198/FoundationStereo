@@ -1,0 +1,19 @@
+left_camera:
+  image_width: 1280
+  image_height: 720
+  camera_name: left_camera
+  camera_matrix: [1006.26886, 0., 634.12177, 0., 1009.64517, 397.38465, 0., 0., 1.]
+  distortion_model: plumb_bob
+  distortion_coefficients: [-0.009902, -0.006029, 0.001218, -0.000542, 0.000000]
+  rectification_matrix: [0.99921428, -0.01400902, -0.03707511, 0.01429501, 0.99986999, 0.00746016, 0.03696578, -0.00798428, 0.99928464]
+  projection_matrix: [1083.68533, 0., 649.05392, 0., 0., 1083.68533, 386.875, 0., 0., 0., 1., 0.]
+
+right_camera:
+  image_width: 1280
+  image_height: 720
+  camera_name: right_camera
+  camera_matrix: [1009.03035, 0., 622.70553, 0., 1014.5841, 373.5456, 0., 0., 1.]
+  distortion_model: plumb_bob
+  distortion_coefficients: [-0.000610, 0.031767, 0.001485, 0.001729, 0.000000]
+  rectification_matrix: [0.99995252, 0.0033997, 0.00913282, -0.00332905, 0.99996451, -0.00773903, -0.0091588, 0.00770826, 0.99992835]
+  projection_matrix: [1083.68533, 0., 649.05392, -65.01143, 0., 1083.68533, 386.875, 0., 0., 0., 1., 0.]
