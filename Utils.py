@@ -41,6 +41,18 @@ def set_seed(random_seed):
 
 
 def toOpen3dCloud(points,colors=None,normals=None):
+
+  points = points.reshape(-1, 3)
+  colors = colors.reshape(-1, 3) / 255.0  # Ensure color is normalized to [0, 1]
+
+  # --- ADD THIS FIX TO REMOVE INF AND NAN ---
+  # Create a mask checking that ALL 3 coordinates (X, Y, Z) per point are finite
+  finite_mask = np.isfinite(points).all(axis=1)
+  
+  # Filter both arrays
+  points = points[finite_mask]
+  colors = colors[finite_mask]
+  
   cloud = o3d.geometry.PointCloud()
   cloud.points = o3d.utility.Vector3dVector(points.astype(np.float64))
   if colors is not None:

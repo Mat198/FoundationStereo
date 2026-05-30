@@ -2,22 +2,20 @@
 """Run live stereo demo from USB camera with side-by-side left/right frames.
 
 Captures from a camera (default /dev/video0) with MJPG encoding at 2560x720,
-splits into left/right (1280x720 each), runs the `FoundationStereo` model,
-visualizes disparity live, and updates a 3D Open3D point cloud.
+splits into left/right (1280x720 each), runs the `FoundationStereo` model and
+visualizes disparity live. Press `q` to quit, `s` to save current outputs.
 """
 import os
 import sys
 import argparse
 import logging
 import time
-import yaml  # Added for parsing camera info
 
 import imageio
 import cv2
 import numpy as np
 import torch
 import threading
-import open3d as o3d  # Added for 3D Visualization
 
 code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f'{code_dir}/../')
@@ -29,6 +27,7 @@ from core.foundation_stereo import FoundationStereo
 
 
 def split_stereo_images(frame):
+    # frame expected shape (H, W, C) where W = 2560 and left/right are 1280 each
     h, w = frame.shape[:2]
     mid = 1280
     imgL = frame[:, 0:mid].copy()
@@ -50,40 +49,6 @@ def build_model(ckpt_path):
     return model, args
 
 
-def load_camera_intrinsics(yaml_path):
-    """Parses the YAML camera configuration file and returns K and baseline."""
-    with open(yaml_path, 'r') as f:
-        calib = yaml.safe_load(f)
-    
-    # Extract left camera projection matrix P (12 elements)
-    p_left = calib['left_camera']['projection_matrix']
-    P_L = np.array(p_left).reshape(3, 4)
-    
-    # Extract right camera projection matrix P to calculate baseline
-    p_right = calib['right_camera']['projection_matrix']
-    P_R = np.array(p_right).reshape(3, 4)
-    
-    # Construct K from the rectified projection matrix (ideal for disparity maps)
-    f_x = P_L[0, 0]
-    f_y = P_L[1, 1]
-    c_x = P_L[0, 2]
-    c_y = P_L[1, 2]
-    
-    K = np.array([
-        [f_x,  0.0, c_x],
-        [0.0,  f_y, c_y],
-        [0.0,  0.0, 1.0]
-    ], dtype=np.float32)
-    
-    # Baseline = |Tx| / fx  (Tx is from P_R[0,3])
-    baseline = abs(P_R[0, 3] / f_x)
-    
-    logging.info(f"Loaded Intrinsics: fx={f_x:.2f}, fy={f_y:.2f}, cx={c_x:.2f}, cy={c_y:.2f}")
-    logging.info(f"Calculated Baseline: {baseline:.4f} meters")
-    
-    return K, baseline
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', default='/dev/video0', help='camera device')
@@ -91,8 +56,7 @@ def main():
     parser.add_argument('--height', type=int, default=720)
     parser.add_argument('--fourcc', default='MJPG')
     parser.add_argument('--ckpt', default=os.path.join(code_dir, 'weights', 'model_best_bp2.pth'))
-    # Changed default to camera_info.yaml
-    parser.add_argument('--intrinsic_file', default=os.path.join(code_dir, 'assets', 'camera_info.yaml'))
+    parser.add_argument('--intrinsic_file', default=os.path.join(code_dir, 'assets', 'stereo_camera.txt'))
     parser.add_argument('--out_dir', default=os.path.join(code_dir, 'output'))
     parser.add_argument('--every', type=int, default=1, help='run inference every N frames')
     parser.add_argument('--hiera', type=int, default=0)
@@ -105,15 +69,9 @@ def main():
     set_seed(0)
     os.makedirs(args.out_dir, exist_ok=True)
 
-    # Load parameters from YAML
-    try:
-        K, baseline = load_camera_intrinsics(args.intrinsic_file)
-    except Exception as e:
-        logging.error(f"Failed to parse camera configuration file: {e}")
-        sys.exit(1)
-
     logging.info(f"Opening camera {args.device} ({args.width}x{args.height}, {args.fourcc})")
 
+    # Use a background thread to continuously read frames and keep only the latest one.
     class CameraReader(threading.Thread):
         def __init__(self, device, width, height, fourcc):
             super().__init__(daemon=True)
@@ -183,9 +141,11 @@ def main():
         logging.warning(f"Failed to load model: {e}. Running in preview-only mode.")
         model = None
 
-    # Initialize Open3D Visualizer Window
+    import open3d as o3d
     vis3d = o3d.visualization.Visualizer()
-    vis3d.create_window(window_name="3D Point Cloud Map", width=800, height=600)
+    vis3d.create_window(window_name="3D Point Cloud", width=640, height=480)
+    
+    # Initialize an empty point cloud and add it to the visualizer
     pcd = o3d.geometry.PointCloud()
     vis3d.add_geometry(pcd)
     first_pcd_frame = True
@@ -200,6 +160,7 @@ def main():
                 time.sleep(0.005)
                 continue
 
+            # split dynamically in case device returns slightly different width
             imgL_bgr, imgR_bgr = split_stereo_images(frame)
             if imgL_bgr is None or imgR_bgr is None or imgR_bgr.size == 0:
                 logging.warning("Received empty left/right image after split, skipping frame")
@@ -209,6 +170,7 @@ def main():
             disp_vis = None
 
             if model is not None and (frame_id % args.every == 0):
+                # convert BGR->RGB and to tensor
                 try:
                     img0 = cv2.cvtColor(imgL_bgr, cv2.COLOR_BGR2RGB)
                     img1 = cv2.cvtColor(imgR_bgr, cv2.COLOR_BGR2RGB)
@@ -226,6 +188,7 @@ def main():
                 padder = InputPadder(img0_t.shape, divis_by=32, force_square=False)
                 img0_t, img1_t = padder.pad(img0_t, img1_t)
 
+                # run inference and measure time
                 t0 = time.perf_counter()
                 with torch.no_grad():
                     with torch.cuda.amp.autocast(True):
@@ -241,37 +204,40 @@ def main():
                 vis = vis_disparity(disp)
                 disp_vis = vis
 
-                # --- 3D Reconstruction and Update Loop ---
-                try:
-                    # depending on whether depth2xyzmap expects baseline or reads it implicitly
-                    # We pass K and baseline. If your signature is depth2xyzmap(disp, K), adjust here.
-                    xyz_map = depth2xyzmap(disp, K, baseline) 
-                    current_pcd = toOpen3dCloud(xyz_map, img0)
-                    
-                    # Performance filter: Optional downsampling to prevent lag
-                    current_pcd = current_pcd.voxel_down_sample(voxel_size=0.01)
-                    
-                    pcd.points = current_pcd.points
-                    pcd.colors = current_pcd.colors
-                    
-                    vis3d.update_geometry(pcd)
-                    if first_pcd_frame:
-                        vis3d.reset_view_point(True)
-                        first_pcd_frame = False
-                except Exception as pcd_err:
-                    logging.warning(f"Failed to generate 3D frame: {pcd_err}")
+                with open(args.intrinsic_file, 'r') as f:
+                    lines = f.readlines()
+                    K = np.array(list(map(float, lines[0].rstrip().split()))).astype(np.float32).reshape(3,3)
+                    baseline = float(lines[1])
+                K[:2] *= args.scale
+                xyz_map = depth2xyzmap(disp, K) 
+                current_pcd = toOpen3dCloud(xyz_map, img0)
+                R = current_pcd.get_rotation_matrix_from_xyz((np.pi, 0, 0))
+                current_pcd.rotate(R, center=(0, 0, 0))
+                pcd.points = current_pcd.points
+                pcd.colors = current_pcd.colors
+                
+                # Update geometry in renderer
+                vis3d.update_geometry(pcd)
+                
+                # Auto-center the camera view only on the very first frame
+                if first_pcd_frame:
+                    vis3d.reset_view_point(True)
+                    first_pcd_frame = False
 
+            # build display frame: left image and disparity side-by-side scaled by display_scale
             left_display = imgL_bgr.copy()
             ds = float(args.display_scale)
             left_show = cv2.resize(left_display, dsize=None, fx=ds, fy=ds)
             if disp_vis is None:
                 display = left_show
             else:
+                # ensure disp_vis is 3-channel uint8
                 if disp_vis.ndim == 2:
                     disp_vis_col = cv2.cvtColor(disp_vis, cv2.COLOR_GRAY2BGR)
                 else:
                     disp_vis_col = disp_vis.copy()
 
+                # resize disparity to match left_show height to avoid mismatched shapes
                 th = left_show.shape[0]
                 if disp_vis_col.shape[0] == 0:
                     display = left_show
@@ -280,6 +246,7 @@ def main():
                     disp_show = cv2.resize(disp_vis_col, (new_w, th))
                     display = np.concatenate([left_show, disp_show], axis=1)
 
+            # overlay FPS and inference time
             now = time.perf_counter()
             if last_display_time is None:
                 fps = 0
@@ -288,9 +255,11 @@ def main():
                 fps = int(round(1.0 / dt)) if dt > 0 else 0
             last_display_time = now
 
+            # prepare text strings
             fps_text = f"FPS: {fps}"
             inf_text = f"Inf: {last_inference_ms:.1f} ms"
 
+            # draw text with black outline
             font = cv2.FONT_HERSHEY_SIMPLEX
             org_fps = (10, 25)
             org_inf = (10, 55)
@@ -303,11 +272,10 @@ def main():
             cv2.putText(display, inf_text, org_inf, font, font_scale, (255, 255, 255), thickness=thickness, lineType=cv2.LINE_AA)
 
             cv2.imshow('stereo_live', display)
-            
-            # Non-blocking render ticks for Open3D Window
+
             vis3d.poll_events()
             vis3d.update_renderer()
-
+            
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
@@ -317,9 +285,7 @@ def main():
                 cv2.imwrite(os.path.join(args.out_dir, f'right_{timestamp}.png'), imgR_bgr)
                 if disp_vis is not None:
                     imageio.imwrite(os.path.join(args.out_dir, f'disp_vis_{timestamp}.png'), cv2.cvtColor(disp_vis, cv2.COLOR_BGR2RGB))
-                    # Save cloud frame to disk on 's' press
-                    o3d.io.write_point_cloud(os.path.join(args.out_dir, f'cloud_{timestamp}.pcd'), pcd)
-                    logging.info(f"Saved outputs and 3D Cloud to {args.out_dir}")
+                    logging.info(f"Saved outputs to {args.out_dir}")
 
             frame_id += 1
 
@@ -334,7 +300,6 @@ def main():
             vis3d.destroy_window()
         except Exception:
             pass
-
 
 if __name__ == '__main__':
     main()
