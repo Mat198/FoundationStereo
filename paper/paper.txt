@@ -1,0 +1,31 @@
+A Comparative Analysis of FoundationStereo and the ROS 2 stereo_image_proc package for Robotic Stereo Vision
+
+Introduction
+
+
+
+General Concepts
+
+
+
+Methodology
+
+This work compares FoundationStereo and the image_proc_package in terms of measurement precision, presence of holes in the disparity image, frame rate, latency, GPU and CPU resource consumption, and ease of setup. 
+
+To test the method's precision, a setup was created as shown in Figure X. The distances of two objects were measured in five different positions and at two angles relative to the camera. The ground truth was evaluated using a measuring tape. To measure the presence of holes, a disparity filling index was used, which consists of the number of filled pixels over the total number of pixels in the image. Frame rate and latency measurements were added to the FoundationStereo demo script, and for the image_proc_package, the command line tool ros2 topic hz was used on the output disparity compressed topic. It’s important to use the compressed topic to avoid network bottlenecks that could impact the measurements. The ease of setup is a qualitative analysis that will evaluate the documentation aspects of each method and the completeness of resources.
+
+The tests used a GXIVISION USB stereo camera module. This module has a 4.2 mm focus lens with 54° vertical and 110° horizontal FoV. It can output synchronized images at up to 1280 x 720 resolution and 30 FPS. The camera baseline can be adjusted by mounting it to a custom frame. A custom frame was designed to create a 59 mm baseline stereo camera. This camera model is inexpensive and was not used in the tests described in the original FoundationStereo paper.
+
+The camera was calibrated using the ROS 2 camera_calibration package and a 6x9 checkerboard with 25 mm squares. This package has a calibration interface that orients the calibration process, informing the user which kind of image is missing to ensure an optimal calibration process. It expects pictures of the calibration target in multiple orientations, distances, and in horizontal and vertical positions. The pictures are taken automatically, and fill the four metrics described previously. When there are enough images, the calibration button is enabled, and the process can be started. It outputs a calibration file and the images used in the process.
+
+A camera driver ROS2 package, usb_stereo_camera_driver, was created to publish camera images to the ROS 2 stack. The package has compressed image transport capability to reduce latency, and a Composable Node structure to enable interprocess communication. It is compatible with the ROS 2 camera_calibration package with a camera_info publisher and a set_camera_info service. The outputs of the driver package were connected to the stereo_image_proc to generate the disparity image and point cloud.
+
+To run the FoundationStereo model, the documentation was followed to set up the environment. The available demo only works for static images at the moment, so a custom script was created to get the stereo camera images and process them. An attempt was made to create a wrapper for ROS 2, but it was not simple due to multiple incompatibilities between Python dependencies, and it was left for future work. The model ran on an RTX 3060 Ti NVIDIA GPU.
+
+In both methods, OpenCV was used to capture the camera images using the MJPG encoding at 30FPS and 2560x720 resolution. The camera outputs both the left and right sensor images on the same frame. The YUV encoding was also available, but with only 5 FPS. The image_view package was used to view the images in the ROS 2 environment, and RViz to view the cloud. For the FoundationStereo, an OpenCV window was created to show the images, and open3d was used to view the point cloud.
+
+Results
+
+Following the stereo_image_proc documentation resulted in a straightforward setup. 
+
+Conclusion

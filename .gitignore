@@ -11,3 +11,9 @@ dataset
 test_outputs
 training_output
 weights
+
+*.log
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
