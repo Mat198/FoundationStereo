@@ -3,7 +3,8 @@
 
 Captures from a camera (default /dev/video0) with MJPG encoding at 2560x720,
 splits into left/right (1280x720 each), runs the `FoundationStereo` model and
-visualizes disparity live. Press `q` to quit, `s` to save current outputs.
+visualizes disparity live. Press `q` to quit, `s` to save current outputs, 
+and `m` to generate and save a 3D mesh.
 """
 import os
 import sys
@@ -285,6 +286,35 @@ def main():
                 if disp_vis is not None:
                     imageio.imwrite(os.path.join(args.out_dir, f'disp_vis_{timestamp}.png'), cv2.cvtColor(disp_vis, cv2.COLOR_BGR2RGB))
                     logging.info(f"Saved outputs to {args.out_dir}")
+
+            elif key == ord('m'):
+                if pcd.is_empty():
+                    logging.warning("Point cloud is empty, cannot generate mesh.")
+                else:
+                    logging.info("Generating mesh from point cloud...")
+                    timestamp = int(time.time())
+                    
+                    # 1. Estimate normals (required for surface reconstruction methods)
+                    pcd.estimate_normals(
+                        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=30)
+                    )
+                    # Align normals toward the camera location so surfaces face the right way
+                    pcd.orient_normals_towards_camera_location(camera_location=np.array([0, 0, 0]))
+                    
+                    # 2. Compute dynamic radii parameters based on point distances
+                    distances = pcd.compute_nearest_neighbor_distance()
+                    avg_dist = np.mean(distances) if len(distances) > 0 else 0.01
+                    radii = [avg_dist, avg_dist * 2]
+                    
+                    # 3. Generate mesh using Ball Pivoting algorithm
+                    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+                        pcd, o3d.utility.DoubleVector(radii)
+                    )
+                    
+                    # 4. Save to disk
+                    mesh_path = os.path.join(args.out_dir, f'mesh_{timestamp}.ply')
+                    o3d.io.write_triangle_mesh(mesh_path, mesh)
+                    logging.info(f"Successfully saved 3D mesh to {mesh_path}")
 
             frame_id += 1
 
