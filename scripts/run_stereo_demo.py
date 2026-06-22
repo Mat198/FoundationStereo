@@ -209,10 +209,9 @@ def main():
                     K = np.array(list(map(float, lines[0].rstrip().split()))).astype(np.float32).reshape(3,3)
                     baseline = float(lines[1])
                 K[:2] *= args.scale
-                xyz_map = depth2xyzmap(disp, K) 
+                depth = K[0,0]*baseline/disp
+                xyz_map = depth2xyzmap(depth, K) 
                 current_pcd = toOpen3dCloud(xyz_map, img0)
-                R = current_pcd.get_rotation_matrix_from_xyz((np.pi, 0, 0))
-                current_pcd.rotate(R, center=(0, 0, 0))
                 pcd.points = current_pcd.points
                 pcd.colors = current_pcd.colors
                 
